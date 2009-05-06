@@ -2,10 +2,9 @@ TODO list
 ---
 
 * urgent
-  - bug: parameter estimation results NaN after 1st iteration
-  - implement Viterbi algorithm
   - simplify the code: use CPU for any procedure runs in O(N x M)
   - modified backward pass to avoid large memory move
+  - better matrix mutiplication (maybe use CUBLAS library)
 
 * further improvement
   - 2D, 3D reducing
