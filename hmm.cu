@@ -33,7 +33,8 @@
 #include <unistd.h>
 
 #include <cuda.h>
-#include <cutil.h>
+#include <helper_cuda.h>
+#include <helper_timer.h>
 
 
 #define handle_error(msg) \
@@ -63,13 +64,13 @@ float *xid = NULL;              /* xi in device memory */
 float *pid = NULL;              /* pi in device memory */
 
 #ifdef PROFILE_GPU
-unsigned int gpu_timer;
+StopWatchInterface *gpu_timer;
 double gpu_flop;
 float gpu_time;
 #endif
 
 #ifdef PROFILE_PG
-unsigned int pg_timer;
+StopWatchInterface *pg_timer;
 #endif
 
 /* function called in main fuction */
@@ -245,12 +246,12 @@ int main(int argc, char *argv[])
   
   /* initial cuda device memory */
   c = sizeof(float) * nstates * nstates;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&transd, c) );
-  CUDA_SAFE_CALL( cudaMemcpy(transd, trans, c, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&transd, c) );
+  checkCudaErrors( cudaMemcpy(transd, trans, c, cudaMemcpyHostToDevice) );
   
   c = sizeof(float) * nstates * nobvs;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&obvsd, c) );
-  CUDA_SAFE_CALL( cudaMemcpy(obvsd, obvs, c, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&obvsd, c) );
+  checkCudaErrors( cudaMemcpy(obvsd, obvs, c, cudaMemcpyHostToDevice) );
 
 #ifdef PROFILE_GPU
   gpu_time = 0;
@@ -258,8 +259,8 @@ int main(int argc, char *argv[])
 #endif
 
 #ifdef PROFILE_PG
-  CUT_SAFE_CALL( cutCreateTimer( &pg_timer ) );
-  CUT_SAFE_CALL( cutStartTimer(pg_timer) );
+  sdkCreateTimer( &pg_timer );
+  sdkStartTimer(&pg_timer);
 #endif
 
   if (mode == 3) {
@@ -270,7 +271,7 @@ int main(int argc, char *argv[])
       update_prob();
 
 #ifdef PROFILE_PG
-      CUT_SAFE_CALL( cutStopTimer(pg_timer) );
+      sdkStopTimer(&pg_timer);
 #endif
 
       printf("iteration %d log-likelihood: %.4f\n", i + 1, d);
@@ -298,7 +299,7 @@ int main(int argc, char *argv[])
     }
 
 #ifdef PROFILE_PG
-      CUT_SAFE_CALL( cutStartTimer(pg_timer) );
+      sdkStartTimer(&pg_timer);
 #endif
 
   } else if (mode == 1) {
@@ -312,9 +313,9 @@ int main(int argc, char *argv[])
   freeall();
 
 #ifdef PROFILE_PG
-  CUT_SAFE_CALL( cutStopTimer(pg_timer) );
-  printf("Programming running time (in Ms): %f\n", cutGetTimerValue(pg_timer));
-  CUT_SAFE_CALL( cutDeleteTimer( pg_timer) );
+   sdkStopTimer(&pg_timer);
+  printf("Programming running time (in Ms): %f\n", sdkGetTimerValue(&pg_timer));
+  sdkDeleteTimer( &pg_timer);
 #endif
 
 #ifdef PROFILE_GPU
@@ -373,7 +374,7 @@ float sumf(float *array, int n, int indevice)
     } else {
       float gout[n];
       size = sizeof(float) * n;
-      CUDA_SAFE_CALL( cudaMemcpy(gout, array, size, cudaMemcpyDeviceToHost) );
+      checkCudaErrors( cudaMemcpy(gout, array, size, cudaMemcpyDeviceToHost) );
       for (i = 0; i < n; i++) {
         sum += gout[i];
       }
@@ -389,8 +390,8 @@ float sumf(float *array, int n, int indevice)
     if (indevice == 0) {
 
       size = sizeof(float) * num_blocks * NUM_THREADS;
-      CUDA_SAFE_CALL( cudaMalloc((void**) &gin, size) );
-      CUDA_SAFE_CALL( cudaMemcpy(gin, array, size, cudaMemcpyHostToDevice) );
+      checkCudaErrors( cudaMalloc((void**) &gin, size) );
+      checkCudaErrors( cudaMemcpy(gin, array, size, cudaMemcpyHostToDevice) );
     
       reduce2<<<dimGrid, dimBlock>>>(gin, gin);
 
@@ -399,7 +400,7 @@ float sumf(float *array, int n, int indevice)
       if (remains > 0)
         sum += sumf(array + num_blocks * NUM_THREADS, remains, 0);
 
-      CUDA_SAFE_CALL( cudaFree(gin) );
+      checkCudaErrors( cudaFree(gin) );
 
     } else {
       reduce2<<<dimGrid, dimBlock>>>(gin, gin);
@@ -455,7 +456,7 @@ float logsumf(float *array, int n, int indevice)
     } else {
       float gout[n];
       size = sizeof(float) * n;
-      CUDA_SAFE_CALL( cudaMemcpy(gout, array, size, cudaMemcpyDeviceToHost) );
+      checkCudaErrors( cudaMemcpy(gout, array, size, cudaMemcpyDeviceToHost) );
       for (i = 0; i < n; i++) {
         sum = logadd(sum, gout[i]);
       }
@@ -471,8 +472,8 @@ float logsumf(float *array, int n, int indevice)
     if (! indevice) {
 
       size = sizeof(float) * num_blocks * NUM_THREADS;
-      CUDA_SAFE_CALL( cudaMalloc((void**) &gin, size) );
-      CUDA_SAFE_CALL( cudaMemcpy(gin, array, size, cudaMemcpyHostToDevice) );
+      checkCudaErrors( cudaMalloc((void**) &gin, size) );
+      checkCudaErrors( cudaMemcpy(gin, array, size, cudaMemcpyHostToDevice) );
     
       logreduce2<<<dimGrid, dimBlock>>>(gin, gin);
 
@@ -481,7 +482,7 @@ float logsumf(float *array, int n, int indevice)
       if (remains > 0)
         sum = logadd(sum, logsumf(array + num_blocks * NUM_THREADS, remains, IN_HOST));
 
-      CUDA_SAFE_CALL( cudaFree(gin) );
+      checkCudaErrors( cudaFree(gin) );
 
     } else {
       logreduce2<<<dimGrid, dimBlock>>>(gin, gin);
@@ -512,16 +513,16 @@ void init_count() {
     pi[i] = - INFINITY;
 
   size = sizeof(float) * nstates * nstates;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&xid, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(xid, xi, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&xid, size) );
+  checkCudaErrors( cudaMemcpy(xid, xi, size, cudaMemcpyHostToDevice) );
   
   size = sizeof(float) * nstates * nobvs;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&gmmd, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(gmmd, gmm, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&gmmd, size) );
+  checkCudaErrors( cudaMemcpy(gmmd, gmm, size, cudaMemcpyHostToDevice) );
 
   size = sizeof(float) * nstates;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&pid, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(pid, pi, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&pid, size) );
+  checkCudaErrors( cudaMemcpy(pid, pi, size, cudaMemcpyHostToDevice) );
 }
 
 /* add up two logarithm while avoiding overflow */
@@ -601,37 +602,37 @@ void stepfwd(float *alpha, size_t n)
   dim3 dimGrid(nstates / dimBlock.x, nseq / dimBlock.y);
 
   size = sizeof(int) * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Od, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(Od, data + n * nseq, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&Od, size) );
+  checkCudaErrors( cudaMemcpy(Od, data + n * nseq, size, cudaMemcpyHostToDevice) );
 
   size = sizeof(float) * nstates * nseq;
 
-  CUDA_SAFE_CALL( cudaMalloc((void**)&A, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(A, alpha + (n - 1) * nseq * nstates, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&A, size) );
+  checkCudaErrors( cudaMemcpy(A, alpha + (n - 1) * nseq * nstates, size, cudaMemcpyHostToDevice) );
 
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Ad, size) );
+  checkCudaErrors( cudaMalloc((void**)&Ad, size) );
 
 #ifdef PROFILE_GPU
-  CUT_SAFE_CALL( cutCreateTimer( &gpu_timer ) );
-  CUT_SAFE_CALL( cutStartTimer(gpu_timer) );
+  sdkCreateTimer( &gpu_timer );
+  sdkStartTimer(&gpu_timer);
 #endif
 
   stepfwdd<<<dimGrid, dimBlock>>>(A, transd, Od, obvsd, nstates, nobvs, Ad);
 
 #ifdef PROFILE_GPU
-  CUDA_SAFE_CALL( cudaThreadSynchronize() );
-  CUT_SAFE_CALL( cutStopTimer(gpu_timer) );
-  gpu_time += cutGetTimerValue(gpu_timer);
-  CUT_SAFE_CALL( cutDeleteTimer( gpu_timer) );
+  checkCudaErrors( cudaThreadSynchronize() );
+  sdkStopTimer(&gpu_timer);
+  gpu_time += sdkGetTimerValue(&gpu_timer);
+  sdkDeleteTimer( &gpu_timer);
 
   gpu_flop += 1e-6 * ((double)nstates) * ((double)nseq) * ((double)nstates) * 7;
 #endif
 
-  CUDA_SAFE_CALL( cudaMemcpy(alpha + n * nseq * nstates, Ad, size, cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(alpha + n * nseq * nstates, Ad, size, cudaMemcpyDeviceToHost) );
 
-  CUDA_SAFE_CALL( cudaFree(Od) );
-  CUDA_SAFE_CALL( cudaFree(A) );
-  CUDA_SAFE_CALL( cudaFree(Ad) );
+  checkCudaErrors( cudaFree(Od) );
+  checkCudaErrors( cudaFree(A) );
+  checkCudaErrors( cudaFree(Ad) );
 }
 
 /* init first slice of forwad probability matrix. */
@@ -666,37 +667,37 @@ void initfwd(float *alpha)
   dim3 dimGrid(nstates / dimBlock.x, nseq / dimBlock.y);
 
   size = sizeof(float) * nstates;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&priord, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(priord, prior, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&priord, size) );
+  checkCudaErrors( cudaMemcpy(priord, prior, size, cudaMemcpyHostToDevice) );
 
   size = sizeof(int) * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Od, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(Od, data, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&Od, size) );
+  checkCudaErrors( cudaMemcpy(Od, data, size, cudaMemcpyHostToDevice) );
 
   size = sizeof(float) * nstates * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Ad, size) );
+  checkCudaErrors( cudaMalloc((void**)&Ad, size) );
 
 
 #ifdef PROFILE_GPU
-  CUT_SAFE_CALL( cutCreateTimer( &gpu_timer ) );
-  CUT_SAFE_CALL( cutStartTimer(gpu_timer) );
+  sdkCreateTimer( &gpu_timer );
+  sdkStartTimer(&gpu_timer);
 #endif
 
   initfwdd<<<dimGrid, dimBlock>>>(priord, Od, obvsd, nstates, nobvs, Ad);
 
 #ifdef PROFILE_GPU
-  CUDA_SAFE_CALL( cudaThreadSynchronize() );
-  CUT_SAFE_CALL( cutStopTimer(gpu_timer) );
-  gpu_time += cutGetTimerValue(gpu_timer);
-  CUT_SAFE_CALL( cutDeleteTimer( gpu_timer) );
+  checkCudaErrors( cudaThreadSynchronize() );
+  sdkStopTimer(&gpu_timer);
+  gpu_time += sdkGetTimerValue(&gpu_timer);
+  sdkDeleteTimer( &gpu_timer);
 
   gpu_flop += 1e-6 * ((double)nstates) * ((double)nseq) * 1.0;
 #endif
 
-  CUDA_SAFE_CALL( cudaMemcpy(alpha, Ad, size, cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(alpha, Ad, size, cudaMemcpyDeviceToHost) );
 
-  CUDA_SAFE_CALL( cudaFree(Ad) );
-  CUDA_SAFE_CALL( cudaFree(priord) );
+  checkCudaErrors( cudaFree(Ad) );
+  checkCudaErrors( cudaFree(priord) );
 }
 
 /* kernel function for initbck() */
@@ -725,13 +726,13 @@ void initbck(float *beta)
   dim3 dimGrid(nstates / dimBlock.x, nseq / dimBlock.y);
 
   size = sizeof(float) * nstates * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Bd, size) );
+  checkCudaErrors( cudaMalloc((void**)&Bd, size) );
 
   initbckd<<<dimGrid, dimBlock>>>(Bd, nstates);
 
-  CUDA_SAFE_CALL( cudaMemcpy(beta, Bd, size, cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(beta, Bd, size, cudaMemcpyDeviceToHost) );
 
-  CUDA_SAFE_CALL( cudaFree(Bd) );
+  checkCudaErrors( cudaFree(Bd) );
 }
 
 /* kernel function for updating xi counts */
@@ -856,87 +857,87 @@ void stepbck(float *alpha, float *pre, size_t n, float* loglik, float *beta)
   dim3 sGrid(nstates / sBlock.x, nseq / sBlock.y);
 
   size = sizeof(int) * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Od, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(Od, data + (n + 1) * nseq,
+  checkCudaErrors( cudaMalloc((void**)&Od, size) );
+  checkCudaErrors( cudaMemcpy(Od, data + (n + 1) * nseq,
                              size, cudaMemcpyHostToDevice) );
 
-  CUDA_SAFE_CALL( cudaMalloc((void**)&loglikd, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(loglikd, loglik, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&loglikd, size) );
+  checkCudaErrors( cudaMemcpy(loglikd, loglik, size, cudaMemcpyHostToDevice) );
 
   size = sizeof(float) * nstates * nseq;
 
-  CUDA_SAFE_CALL( cudaMalloc((void**)&pred, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(pred, pre, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&pred, size) );
+  checkCudaErrors( cudaMemcpy(pred, pre, size, cudaMemcpyHostToDevice) );
 
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Ad, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(Ad, alpha + n * nseq * nstates,
+  checkCudaErrors( cudaMalloc((void**)&Ad, size) );
+  checkCudaErrors( cudaMemcpy(Ad, alpha + n * nseq * nstates,
                              size, cudaMemcpyHostToDevice) );
 
   /* update counts */
 #ifdef PROFILE_GPU
-  CUT_SAFE_CALL( cutCreateTimer( &gpu_timer ) );
-  CUT_SAFE_CALL( cutStartTimer(gpu_timer) );
+  sdkCreateTimer( &gpu_timer );
+  sdkStartTimer(&gpu_timer);
 #endif
   updatexid<<<xiGrid, xiBlock>>>(Ad, pred, transd, Od, obvsd,
                                  nstates, nobvs, nseq, loglikd, xid);
 
 #ifdef PROFILE_GPU
-  CUDA_SAFE_CALL( cudaThreadSynchronize() );
-  CUT_SAFE_CALL( cutStopTimer(gpu_timer) );
-  gpu_time += cutGetTimerValue(gpu_timer);
-  CUT_SAFE_CALL( cutDeleteTimer( gpu_timer) );
+  checkCudaErrors( cudaThreadSynchronize() );
+  sdkStopTimer(&gpu_timer);
+  gpu_time += sdkGetTimerValue(&gpu_timer);
+  sdkDeleteTimer( &gpu_timer);
 
   gpu_flop += 1e-6 * ((double) nstates) * ((double) nstates) * ((double) nseq) * 9.0;
 #endif
 
 
-  CUDA_SAFE_CALL( cudaMemcpy(Ad, alpha + (n + 1) * nseq * nstates,
+  checkCudaErrors( cudaMemcpy(Ad, alpha + (n + 1) * nseq * nstates,
                              size, cudaMemcpyHostToDevice) );
 
 #ifdef PROFILE_GPU
-  CUT_SAFE_CALL( cutCreateTimer( &gpu_timer ) );
-  CUT_SAFE_CALL( cutStartTimer(gpu_timer) );
+  sdkCreateTimer( &gpu_timer );
+  sdkStartTimer(&gpu_timer);
 #endif
 
   updategmmd<<<gmmGrid, gmmBlock>>>(Ad, pred, Od, nstates, nobvs, nseq, loglikd, gmmd);
 
 #ifdef PROFILE_GPU
-  CUDA_SAFE_CALL( cudaThreadSynchronize() );
-  CUT_SAFE_CALL( cutStopTimer(gpu_timer) );
-  gpu_time += cutGetTimerValue(gpu_timer);
-  CUT_SAFE_CALL( cutDeleteTimer( gpu_timer) );
+  checkCudaErrors( cudaThreadSynchronize() );
+  sdkStopTimer(&gpu_timer);
+  gpu_time += sdkGetTimerValue(&gpu_timer);
+  sdkDeleteTimer( &gpu_timer);
 
   gpu_flop += 1e-6 * ((double) nstates) * ((double) nseq) * 7.0;
 #endif
 
 
   /* compute one step beta probabilities */
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Bd, size) );
+  checkCudaErrors( cudaMalloc((void**)&Bd, size) );
 
 #ifdef PROFILE_GPU
-  CUT_SAFE_CALL( cutCreateTimer( &gpu_timer ) );
-  CUT_SAFE_CALL( cutStartTimer(gpu_timer) );
+  sdkCreateTimer( &gpu_timer );
+  sdkStartTimer(&gpu_timer);
 #endif
 
   stepbckd<<<sGrid, sBlock>>>(pred, transd, Od, obvsd, nstates, nobvs, Bd);
 
 #ifdef PROFILE_GPU
-  CUDA_SAFE_CALL( cudaThreadSynchronize() );
-  CUT_SAFE_CALL( cutStopTimer(gpu_timer) );
-  gpu_time += cutGetTimerValue(gpu_timer);
-  CUT_SAFE_CALL( cutDeleteTimer( gpu_timer) );
+  checkCudaErrors( cudaThreadSynchronize() );
+  sdkStopTimer(&gpu_timer);
+  gpu_time += sdkGetTimerValue(&gpu_timer);
+  sdkDeleteTimer( &gpu_timer);
 
   gpu_flop += 1e-6 * ((double) nstates) * ((double) nseq) * ((double) nstates) * 6.0;
 #endif
 
 
-  CUDA_SAFE_CALL( cudaMemcpy(beta, Bd, size, cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(beta, Bd, size, cudaMemcpyDeviceToHost) );
 
-  CUDA_SAFE_CALL( cudaFree(Ad) );
-  CUDA_SAFE_CALL( cudaFree(Od) );
-  CUDA_SAFE_CALL( cudaFree(Bd) );
-  CUDA_SAFE_CALL( cudaFree(pred) );
-  CUDA_SAFE_CALL( cudaFree(loglikd) );
+  checkCudaErrors( cudaFree(Ad) );
+  checkCudaErrors( cudaFree(Od) );
+  checkCudaErrors( cudaFree(Bd) );
+  checkCudaErrors( cudaFree(pred) );
+  checkCudaErrors( cudaFree(loglikd) );
 }
 
 void last_update(float *alpha, float *beta, float *loglik)
@@ -952,41 +953,41 @@ void last_update(float *alpha, float *beta, float *loglik)
   dim3 piGrid(nstates / piBlock.x);
 
   size = sizeof(int) * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Od, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(Od, data, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&Od, size) );
+  checkCudaErrors( cudaMemcpy(Od, data, size, cudaMemcpyHostToDevice) );
 
-  CUDA_SAFE_CALL( cudaMalloc((void**)&loglikd, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(loglikd, loglik, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&loglikd, size) );
+  checkCudaErrors( cudaMemcpy(loglikd, loglik, size, cudaMemcpyHostToDevice) );
 
   size = sizeof(float) * nstates * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Bd, size) );
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Ad, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(Bd, beta, size, cudaMemcpyHostToDevice) );
-  CUDA_SAFE_CALL( cudaMemcpy(Ad, alpha, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&Bd, size) );
+  checkCudaErrors( cudaMalloc((void**)&Ad, size) );
+  checkCudaErrors( cudaMemcpy(Bd, beta, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMemcpy(Ad, alpha, size, cudaMemcpyHostToDevice) );
 
 
 #ifdef PROFILE_GPU
-  CUT_SAFE_CALL( cutCreateTimer( &gpu_timer ) );
-  CUT_SAFE_CALL( cutStartTimer(gpu_timer) );
+  sdkCreateTimer( &gpu_timer );
+  sdkStartTimer(&gpu_timer);
 #endif
 
   updategmmd<<<gmmGrid, gmmBlock>>>(Ad, Bd, Od, nstates, nobvs, nseq, loglikd, gmmd);
   updatepid<<<piGrid, piBlock>>>(Ad, Bd, Od, nstates, nseq, loglikd, pid);
 
 #ifdef PROFILE_GPU
-  CUDA_SAFE_CALL( cudaThreadSynchronize() );
-  CUT_SAFE_CALL( cutStopTimer(gpu_timer) );
-  gpu_time += cutGetTimerValue(gpu_timer);
-  CUT_SAFE_CALL( cutDeleteTimer( gpu_timer) );
+  checkCudaErrors( cudaThreadSynchronize() );
+  sdkStopTimer(&gpu_timer);
+  gpu_time += sdkGetTimerValue(&gpu_timer);
+  sdkDeleteTimer( &gpu_timer);
 
   gpu_flop += 1e-6 * ((double)nstates) * ((double)nseq) * 7.0;
   gpu_flop += 1e-6 * ((double)nstates) * ((double)nseq) * 7.0;
 #endif
 
-  CUDA_SAFE_CALL( cudaFree(Ad) );
-  CUDA_SAFE_CALL( cudaFree(Bd) );
-  CUDA_SAFE_CALL( cudaFree(Od) );
-  CUDA_SAFE_CALL( cudaFree(loglikd) );
+  checkCudaErrors( cudaFree(Ad) );
+  checkCudaErrors( cudaFree(Bd) );
+  checkCudaErrors( cudaFree(Od) );
+  checkCudaErrors( cudaFree(loglikd) );
 }
 
 /* forwad backward algorithm: running on all sequences in parallel */
@@ -1024,14 +1025,14 @@ float forward_backward(int backward)
 
   if (! backward) {
 #ifdef PROFILE_PG
-      CUT_SAFE_CALL( cutStopTimer(pg_timer) );
+    sdkStopTimer(&pg_timer);
 #endif
     for (i = 0; i < nseq; i++) {
       printf("%.4f\n", loglik[i]);
     }
     printf("total: %.4f\n", p);
 #ifdef PROFILE_PG
-      CUT_SAFE_CALL( cutStartTimer(pg_timer) );
+    sdkStartTimer(&pg_timer);
 #endif
     if (loglik) free(loglik);
     if (alpha) free(alpha);
@@ -1150,45 +1151,45 @@ void viterbi_fwd(float *prelbd, size_t n, float *lambda, int *backtrace)
   dim3 dimGrid(nstates / dimBlock.x, nseq / dimBlock.y);
 
   size = sizeof(int) * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Od, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(Od, data + n * nseq, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&Od, size) );
+  checkCudaErrors( cudaMemcpy(Od, data + n * nseq, size, cudaMemcpyHostToDevice) );
 
   size = sizeof(float) * nstates * nseq;
 
-  CUDA_SAFE_CALL( cudaMalloc((void**)&pred, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(pred, prelbd, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&pred, size) );
+  checkCudaErrors( cudaMemcpy(pred, prelbd, size, cudaMemcpyHostToDevice) );
 
-  CUDA_SAFE_CALL( cudaMalloc((void**)&lbdd, size) );
+  checkCudaErrors( cudaMalloc((void**)&lbdd, size) );
 
   size = sizeof(int) * nstates * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&Bd, size) );
+  checkCudaErrors( cudaMalloc((void**)&Bd, size) );
 
 
 #ifdef PROFILE_GPU
-  CUT_SAFE_CALL( cutCreateTimer( &gpu_timer ) );
-  CUT_SAFE_CALL( cutStartTimer(gpu_timer) );
+  sdkCreateTimer( &gpu_timer );
+  sdkStartTimer(&gpu_timer);
 #endif
 
   viterbi_fwdd<<<dimGrid, dimBlock>>>(pred, transd, Od, obvsd, nstates, nobvs, lbdd, Bd);
 
 #ifdef PROFILE_GPU
-  CUDA_SAFE_CALL( cudaThreadSynchronize() );
-  CUT_SAFE_CALL( cutStopTimer(gpu_timer) );
-  gpu_time += cutGetTimerValue(gpu_timer);
-  CUT_SAFE_CALL( cutDeleteTimer( gpu_timer) );
+  checkCudaErrors( cudaThreadSynchronize() );
+  sdkStopTimer(&gpu_timer);
+  gpu_time += sdkGetTimerValue(&gpu_timer);
+  sdkDeleteTimer( &gpu_timer);
 
   gpu_flop += 1e-6 * ((double)nstates) * ((double)nseq) * ((double)nstates) * 3;
 #endif
 
   size = sizeof(float) * nstates * nseq;
-  CUDA_SAFE_CALL( cudaMemcpy(lambda, lbdd, size, cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(lambda, lbdd, size, cudaMemcpyDeviceToHost) );
   size = sizeof(int) * nstates * nseq;
-  CUDA_SAFE_CALL( cudaMemcpy(backtrace + n * nstates * nseq, Bd, size, cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(backtrace + n * nstates * nseq, Bd, size, cudaMemcpyDeviceToHost) );
 
-  CUDA_SAFE_CALL( cudaFree(Od) );
-  CUDA_SAFE_CALL( cudaFree(pred) );
-  CUDA_SAFE_CALL( cudaFree(lbdd) );
-  CUDA_SAFE_CALL( cudaFree(Bd) );
+  checkCudaErrors( cudaFree(Od) );
+  checkCudaErrors( cudaFree(pred) );
+  checkCudaErrors( cudaFree(lbdd) );
+  checkCudaErrors( cudaFree(Bd) );
 }
 
 __global__ void
@@ -1216,18 +1217,18 @@ void find_last_trace_points(float *lambda, int *stack)
   dim3 dimGrid(nseq / dimBlock.x);
  
   size = sizeof(float) * nstates * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&lbdd, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(lbdd, lambda, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&lbdd, size) );
+  checkCudaErrors( cudaMemcpy(lbdd, lambda, size, cudaMemcpyHostToDevice) );
 
   size = sizeof(int) * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&stackd, size) );
+  checkCudaErrors( cudaMalloc((void**)&stackd, size) );
 
   fltpd<<<dimGrid, dimBlock>>>(lbdd, nstates, stackd);
 
-  CUDA_SAFE_CALL( cudaMemcpy(stack, stackd, size, cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(stack, stackd, size, cudaMemcpyDeviceToHost) );
 
-  CUDA_SAFE_CALL( cudaFree(lbdd) );
-  CUDA_SAFE_CALL( cudaFree(stackd) );
+  checkCudaErrors( cudaFree(lbdd) );
+  checkCudaErrors( cudaFree(stackd) );
 }
 
 __global__ void
@@ -1248,22 +1249,22 @@ void backtrace(int *backtracep, int *stack, int n)
   dim3 dimGrid(nseq / dimBlock.x);
 
   size = sizeof(int) * nseq * nstates;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&bckpd, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(bckpd, backtracep + (n + 1) * nseq * nstates, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&bckpd, size) );
+  checkCudaErrors( cudaMemcpy(bckpd, backtracep + (n + 1) * nseq * nstates, size, cudaMemcpyHostToDevice) );
 
   size = sizeof(int) * nseq;
-  CUDA_SAFE_CALL( cudaMalloc((void**)&pred, size) );
-  CUDA_SAFE_CALL( cudaMemcpy(pred, stack + (n + 1) * nseq, size, cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMalloc((void**)&pred, size) );
+  checkCudaErrors( cudaMemcpy(pred, stack + (n + 1) * nseq, size, cudaMemcpyHostToDevice) );
 
-  CUDA_SAFE_CALL( cudaMalloc((void**)&stackd, size) );
+  checkCudaErrors( cudaMalloc((void**)&stackd, size) );
 
   backtraced<<<dimGrid, dimBlock>>>(pred, bckpd, nstates, stackd);
 
-  CUDA_SAFE_CALL( cudaMemcpy(stack + n * nseq, stackd, size, cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(stack + n * nseq, stackd, size, cudaMemcpyDeviceToHost) );
 
-  CUDA_SAFE_CALL( cudaFree(bckpd) );
-  CUDA_SAFE_CALL( cudaFree(stackd) );
-  CUDA_SAFE_CALL( cudaFree(pred) );
+  checkCudaErrors( cudaFree(bckpd) );
+  checkCudaErrors( cudaFree(stackd) );
+  checkCudaErrors( cudaFree(pred) );
 }
 
 void print_path(int *stack)
@@ -1333,13 +1334,13 @@ void update_prob()
 
   size_t i, j;
 
-  CUDA_SAFE_CALL( cudaMemcpy(xi, xid, nstates * nstates * sizeof(float), cudaMemcpyDeviceToHost) );
-  CUDA_SAFE_CALL( cudaMemcpy(gmm, gmmd, nobvs * nstates * sizeof(float), cudaMemcpyDeviceToHost) );
-  CUDA_SAFE_CALL( cudaMemcpy(pi, pid, nstates * sizeof(float), cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(xi, xid, nstates * nstates * sizeof(float), cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(gmm, gmmd, nobvs * nstates * sizeof(float), cudaMemcpyDeviceToHost) );
+  checkCudaErrors( cudaMemcpy(pi, pid, nstates * sizeof(float), cudaMemcpyDeviceToHost) );
 
-  if (gmmd) CUDA_SAFE_CALL( cudaFree(gmmd) );
-  if (xid) CUDA_SAFE_CALL( cudaFree(xid) );
-  if (pid) CUDA_SAFE_CALL( cudaFree(pid) );
+  if (gmmd) checkCudaErrors( cudaFree(gmmd) );
+  if (xid) checkCudaErrors( cudaFree(xid) );
+  if (pid) checkCudaErrors( cudaFree(pid) );
 
   pisum = logsumf(pi, nstates, IN_HOST);
   for (i = 0; i < nstates; i++) {
@@ -1361,8 +1362,8 @@ void update_prob()
   }
 
   /* update indevice parameters */
-  CUDA_SAFE_CALL( cudaMemcpy(transd, trans, nstates * nstates * sizeof(float), cudaMemcpyHostToDevice) );
-  CUDA_SAFE_CALL( cudaMemcpy(obvsd, obvs, nobvs * nstates * sizeof(float), cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMemcpy(transd, trans, nstates * nstates * sizeof(float), cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMemcpy(obvsd, obvs, nobvs * nstates * sizeof(float), cudaMemcpyHostToDevice) );
 }
 
 void usage() {
@@ -1380,8 +1381,8 @@ void usage() {
 /* free all memory */
 void freeall() {
 
-  if (transd) CUDA_SAFE_CALL( cudaFree(transd) );
-  if (obvsd) CUDA_SAFE_CALL( cudaFree(obvsd) );
+  if (transd) checkCudaErrors( cudaFree(transd) );
+  if (obvsd) checkCudaErrors( cudaFree(obvsd) );
 
   if (trans) free(trans);
   if (obvs) free(obvs);
